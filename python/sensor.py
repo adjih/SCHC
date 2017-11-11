@@ -174,6 +174,7 @@ coapC = CoAP.CoAPSM(p, comp, dec, IPv6_source, IPv6_dest, increase_delivary_chan
 app_eui = binascii.unhexlify('00 00 00 00 00 00 00 00'.replace(' ',''))
 app_key = binascii.unhexlify('11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88'.replace(' ',''))
 
+print("app_eui",app_eui)
 pycom.heartbeat(False)
 
 
