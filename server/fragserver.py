@@ -42,13 +42,13 @@ class FragmentationManager:
             self.content = ["to be", "or not to", " be, that's", "the question"]
             return self.get_current_fragment()
         elif self.state == "fragment":
-            self.process_ack(raw_packet)
+            return self.process_ack(raw_packet)
         else: raise ValueError("bad state", self.state)
             
         #return b"helLO2"
 
     def get_current_fragment(self):
-        print("fragment:", self.window, self.fcn, self.fragment_index)
+        print("fragment window={} fcn={} current_frag_index={}".format(self.window, self.fcn, self.fragment_index))
         header = struct.pack(b"!BB", self.window, self.fcn)
         return header + bytes(self.content[self.fragment_index].encode("ascii"))
 
@@ -97,14 +97,14 @@ def device_packet_handler():
 
     if "data" in post_request:
         raw_packet = binascii.a2b_base64(post_request["data"])
-        #print(">>>PACKET:", repr(raw_reply_packet))
-        #XXX!! raw_reply_packet = frag_manager.event_packet(raw_packet)
+        print(">>>PACKET:", repr(raw_packet))
+        raw_reply_packet = frag_manager.event_packet(raw_packet)
     else:
         # This is a join
         print(">>>>JOIN")
         raw_reply_packet = b""
 
-    raw_reply_packet = b"\x00\x00TOBE"
+    #raw_reply_packet = b"\x00\x00TOBE"
     print("<<<REPLY:", repr(raw_reply_packet))
 
     json_response = {
@@ -126,22 +126,48 @@ def device_packet_handler():
 def run_tornado(args):
     global frag_manager
     version = "magicarpe" if args.bis else "green"
-    frag_manager = FragmentationManager(version)        
+    frag_manager = FragmentationManager(version)
+    
     class Alive(tornado.web.RequestHandler):
         def get(self):
             self.write("server is alive")
     
     class PostHandler(tornado.web.RequestHandler):
         def post(self):
-            print("post request")
-            raw_reply_packet = b"yow!"
+            #print("post request", self.request.body)
+            #raw_reply_packet = b"yow!"
+            #json_response = {
+            #    "fport": 2,
+            #    "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
+            #}            
+            #self.response.headers['Content-Type'] = "application/json"
+            #self.response.out.write(json.dumps(json_response))
+
+
+            request_raw_content = self.request.body
+            request_json = request_raw_content.decode("ascii")
+            post_request = json.loads(request_json)
+
+            if "data" in post_request:
+                raw_packet = binascii.a2b_base64(post_request["data"])
+                print(">>>PACKET:", repr(raw_packet))
+                raw_reply_packet = frag_manager.event_packet(raw_packet)
+            else:
+                # This is a join
+                print(">>>>JOIN")
+                raw_reply_packet = b""
+
+            #raw_reply_packet = b"\x00\x00TOBE"
+            print("<<<REPLY:", repr(raw_reply_packet))
+
             json_response = {
                 "fport": 2,
                 "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
-            }            
-            #self.response.headers['Content-Type'] = "application/json"
-            #self.response.out.write(json.dumps(json_response))
-            self.write(json.dumps(json_response))
+            }
+
+            json_response = json.dumps(json_response)
+            #return json_response
+            self.write(json_response)
     
     application = tornado.web.Application([
         (r"/alive", Alive),
@@ -167,7 +193,8 @@ def cmd_run_server(args):
 
 def cmd_post(args):
     # http://docs.python-requests.org/en/master/user/quickstart/#make-a-request
-    r = requests.post("http://{}:{}".format(args.address,args.port), data = {"key":"value"})
+    s = json.dumps({"data":"hello", "fport":2})
+    r = requests.post("http://{}:{}".format(args.address, args.port), data = s)
     print(r.text)
 
 #---------------------------------------------------------------------------
@@ -184,7 +211,8 @@ parser_server.add_argument("--tornado", default=False, action="store_true")
 
 parser_post = subparsers.add_parser("post")
 parser_post.add_argument("--port", default=3112)
-parser_post.add_argument("--address", default="127.0.0.1") # XXX: not used yet
+parser_post.add_argument("--address", default="localhost") # XXX: not used yet
+
 
 args = parser.parse_args()
 
