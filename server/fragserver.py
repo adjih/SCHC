@@ -12,6 +12,14 @@ import struct
 import bottle # pip install bottle || wget https://bottlepy.org/bottle.py
 from bottle import post, request, response
 
+try:
+    import tornado.ioloop
+    import tornado.web
+    with_tornado = True
+except:
+    print("cannot import tornado")
+    with_tornado = False
+
 #---------------------------------------------------------------------------
 
 
@@ -74,6 +82,7 @@ class FragmentationManager:
             return self.get_current_fragment()
     
 #---------------------------------------------------------------------------
+# Bottle version
 
 @post('/')
 def device_packet_handler():
@@ -109,19 +118,56 @@ def device_packet_handler():
 #bottle.run(host='localhost', port=3112, debug=True)
 
 #---------------------------------------------------------------------------
+# Tornado version
+
+# curl -X POST http://localhost:3112/ -H "Content-Type: application/json" -d '{"a":1}'
+
+# https://gist.github.com/cjgiridhar/3274687
+def run_tornado(args):
+    global frag_manager
+    version = "magicarpe" if args.bis else "green"
+    frag_manager = FragmentationManager(version)        
+    class Alive(tornado.web.RequestHandler):
+        def get(self):
+            self.write("server is alive")
+    
+    class PostHandler(tornado.web.RequestHandler):
+        def post(self):
+            print("post request")
+            raw_reply_packet = b"yow!"
+            json_response = {
+                "fport": 2,
+                "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
+            }            
+            #self.response.headers['Content-Type'] = "application/json"
+            #self.response.out.write(json.dumps(json_response))
+            self.write(json.dumps(json_response))
+    
+    application = tornado.web.Application([
+        (r"/alive", Alive),
+        (r"/", PostHandler)
+    ])
+
+    application.listen(args.port, address=args.address)
+    tornado.ioloop.IOLoop.instance().start()
+
+#---------------------------------------------------------------------------
 
 def cmd_run_server(args):
     global frag_manager
     version = "magicarpe" if args.bis else "green"
-    frag_manager = FragmentationManager(version)
-    bottle.run(host="79.137.84.149", port=args.port, debug=args.debug)
+    if not args.tornado:
+        frag_manager = FragmentationManager(version)        
+        bottle.run(host=args.address, port=args.port, debug=args.debug)
+    else:
+        run_tornado(args)
     #bottle.run(host="0.0.0.0", port=args.port, debug=args.debug)
 
 #---------------------------------------------------------------------------
 
 def cmd_post(args):
     # http://docs.python-requests.org/en/master/user/quickstart/#make-a-request
-    r = requests.post("http://localhost:{}".format(args.port), data = {"key":"value"})
+    r = requests.post("http://{}:{}".format(args.address,args.port), data = {"key":"value"})
     print(r.text)
 
 #---------------------------------------------------------------------------
@@ -130,13 +176,15 @@ parser = argparse.ArgumentParser()
 subparsers = parser.add_subparsers(dest="command")
 
 parser_server = subparsers.add_parser("server", help="run as POST server")
+parser_server.add_argument("--address", default="0.0.0.0") # XXX: not used yet
 parser_server.add_argument("--port", default=3112)
 parser_server.add_argument("--debug", default=False, action="store_true")
 parser_server.add_argument("--bis", default=False, action="store_true")
+parser_server.add_argument("--tornado", default=False, action="store_true")
 
 parser_post = subparsers.add_parser("post")
 parser_post.add_argument("--port", default=3112)
-
+parser_post.add_argument("--address", default="127.0.0.1") # XXX: not used yet
 
 args = parser.parse_args()
 
