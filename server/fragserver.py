@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 #---------------------------------------------------------------------------
 
+import logging
 import threading
 import argparse
 import requests
@@ -22,6 +23,22 @@ except:
 
 #---------------------------------------------------------------------------
 
+def bytes_to_hex(data, with_new_line=False, with_repr=True):
+    result = ""
+    for i,b in enumerate(bytearray(data)):
+        if i == 0:
+            pass
+        elif i%16 == 0:
+            if with_new_line:
+                result += "\n"
+            else: result += " "
+        else: result += " "
+        result += "%02x" % b
+    if with_repr:
+        result += " "+repr(data)
+    return result
+
+#---------------------------------------------------------------------------
 
 class FragmentationManager:
     def __init__(self, version="magicarpe"):
@@ -44,8 +61,6 @@ class FragmentationManager:
         elif self.state == "fragment":
             return self.process_ack(raw_packet)
         else: raise ValueError("bad state", self.state)
-            
-        #return b"helLO2"
 
     def get_current_fragment(self):
         print("fragment window={} fcn={} current_frag_index={}".format(self.window, self.fcn, self.fragment_index))
@@ -53,17 +68,17 @@ class FragmentationManager:
         return header + bytes(self.content[self.fragment_index].encode("ascii"))
 
     def process_ack(self, raw_packet):
-        print("process_ack", repr(raw_packet))
+        print("process_ack", bytes_to_hex(raw_packet))
         if len(raw_packet) != struct.calcsize("!BB"):
             print("XXX: bad ack size", len(raw_packet))
             return b"XXX:bad"
         window, bitmap = struct.unpack("!BB", raw_packet)
-        print(window, bitmap)
+        print("window={}, bitmap={}".format(window, bitmap))
         if window != self.window:
             print("warning: bad window number", window, self.window)
             return b"XXX:bad-window"
         if bitmap != 1: #XXX
-            print("warning: incomplete bitmap", bitmap, self.bitmap)
+            print("warning: incomplete bitmap", bitmap, 1)
             return b"XXX:bad-bitmap"
 
         # Next fragment
@@ -80,7 +95,31 @@ class FragmentationManager:
             return self.get_current_fragment() # XXX + "MIC"
         else:
             return self.get_current_fragment()
-    
+
+#---------------------------------------------------------------------------
+# POST packet I/O
+
+def process_packet(frag_manager, json_request):
+    post_request = json.loads(json_request)
+
+    if "data" in post_request:
+        raw_packet = binascii.a2b_base64(post_request["data"])
+        print(">>>PACKET:", bytes_to_hex(raw_packet))
+        raw_reply_packet = frag_manager.event_packet(raw_packet)
+    else:
+        # This is a join
+        print(">>>>JOIN")
+        raw_reply_packet = b""
+
+    #raw_reply_packet = b"\x00\x00TOBE"
+    print("<<<REPLY:", bytes_to_hex(raw_reply_packet))
+
+    json_response = {
+        "fport": 2,
+        "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
+    }
+    return json_response
+
 #---------------------------------------------------------------------------
 # Bottle version
 
@@ -89,38 +128,16 @@ def device_packet_handler():
     global frag_manager
     print("--- received data")
     # https://stackoverflow.com/questions/14988887/reading-post-body-with-bottle-py
-    print("post request content:", request.body.read())
     response.set_header('Content-Type', 'application/json')
-    request_raw_content = request.body.read()
-    request_json = request_raw_content.decode("ascii")
-    post_request = json.loads(request_json)
-
-    if "data" in post_request:
-        raw_packet = binascii.a2b_base64(post_request["data"])
-        print(">>>PACKET:", repr(raw_packet))
-        raw_reply_packet = frag_manager.event_packet(raw_packet)
-    else:
-        # This is a join
-        print(">>>>JOIN")
-        raw_reply_packet = b""
-
-    #raw_reply_packet = b"\x00\x00TOBE"
-    print("<<<REPLY:", repr(raw_reply_packet))
-
-    json_response = {
-        "fport": 2,
-        "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
-    }
-    
-    json_response = json.dumps(json_response)
-    return json_response
+    raw_request = request.body.read()
+    json_response = process_packet(frag_manager, raw_request)
+    raw_response = json.dumps(json_response)
+    return raw_response
 
 #bottle.run(host='localhost', port=3112, debug=True)
 
 #---------------------------------------------------------------------------
 # Tornado version
-
-# curl -X POST http://localhost:3112/ -H "Content-Type: application/json" -d '{"a":1}'
 
 # https://gist.github.com/cjgiridhar/3274687
 def run_tornado(args):
@@ -134,40 +151,11 @@ def run_tornado(args):
     
     class PostHandler(tornado.web.RequestHandler):
         def post(self):
-            #print("post request", self.request.body)
-            #raw_reply_packet = b"yow!"
-            #json_response = {
-            #    "fport": 2,
-            #    "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
-            #}            
-            #self.response.headers['Content-Type'] = "application/json"
-            #self.response.out.write(json.dumps(json_response))
-
-
-            request_raw_content = self.request.body
-            request_json = request_raw_content.decode("ascii")
-            post_request = json.loads(request_json)
-
-            if "data" in post_request:
-                raw_packet = binascii.a2b_base64(post_request["data"])
-                print(">>>PACKET:", repr(raw_packet))
-                raw_reply_packet = frag_manager.event_packet(raw_packet)
-            else:
-                # This is a join
-                print(">>>>JOIN")
-                raw_reply_packet = b""
-
-            #raw_reply_packet = b"\x00\x00TOBE"
-            print("<<<REPLY:", repr(raw_reply_packet))
-
-            json_response = {
-                "fport": 2,
-                "data": binascii.b2a_base64(raw_reply_packet).decode("ascii")
-            }
-
-            json_response = json.dumps(json_response)
-            #return json_response
-            self.write(json_response)
+            raw_request = self.request.body
+            json_request = raw_request.decode("ascii")
+            json_response = process_packet(frag_manager, json_request)
+            raw_response = json.dumps(json_response)
+            self.write(raw_response)
     
     application = tornado.web.Application([
         (r"/alive", Alive),
@@ -187,15 +175,36 @@ def cmd_run_server(args):
         bottle.run(host=args.address, port=args.port, debug=args.debug)
     else:
         run_tornado(args)
-    #bottle.run(host="0.0.0.0", port=args.port, debug=args.debug)
 
 #---------------------------------------------------------------------------
 
 def cmd_post(args):
     # http://docs.python-requests.org/en/master/user/quickstart/#make-a-request
-    s = json.dumps({"data":"hello", "fport":2})
+    raw_packet = b"hello-from-python"
+    packet_b64 = binascii.b2a_base64(raw_packet).decode("ascii")
+    s = json.dumps({"data":packet_b64, "fport":2})
     r = requests.post("http://{}:{}".format(args.address, args.port), data = s)
     print(r.text)
+
+#---------------------------------------------------------------------------
+
+def cmd_simple(args):
+    # http://docs.python-requests.org/en/master/user/quickstart/#make-a-request
+    if args.step == 0:   raw_packet = b"\x00\x00"
+    elif args.step == 1: raw_packet = b"\x00\x01"
+    elif args.step == 2: raw_packet = b"\x01\x01"
+    elif args.step == 3: raw_packet = b"\x00\x01"
+    elif args.step == 4: raw_packet = b"\x01\x01"
+    else: raise ValueError("unmanaged step", args.step)
+
+    packet_b64 = binascii.b2a_base64(raw_packet).decode("ascii")
+    s = json.dumps({"data":packet_b64, "fport":2})
+    r = requests.post("http://{}:{}".format(args.address, args.port), data = s)
+    json_reply = json.loads(r.text)
+    if "data" in json_reply:
+        packet = binascii.a2b_base64(json_reply["data"]).decode("ascii")
+        packet
+    else: print("reply:", r.text)
 
 #---------------------------------------------------------------------------
 
@@ -203,16 +212,20 @@ parser = argparse.ArgumentParser()
 subparsers = parser.add_subparsers(dest="command")
 
 parser_server = subparsers.add_parser("server", help="run as POST server")
-parser_server.add_argument("--address", default="0.0.0.0") # XXX: not used yet
+parser_server.add_argument("--address", default="0.0.0.0")
 parser_server.add_argument("--port", default=3112)
 parser_server.add_argument("--debug", default=False, action="store_true")
 parser_server.add_argument("--bis", default=False, action="store_true")
 parser_server.add_argument("--tornado", default=False, action="store_true")
 
-parser_post = subparsers.add_parser("post")
+parser_post = subparsers.add_parser("post", help="post a message")
 parser_post.add_argument("--port", default=3112)
-parser_post.add_argument("--address", default="localhost") # XXX: not used yet
+parser_post.add_argument("--address", default="localhost") 
 
+parser_simple = subparsers.add_parser("simple", help="send one step of simple fragmentation")
+parser_simple.add_argument("--port", default=3112)
+parser_simple.add_argument("--step", type=int, default=0)
+parser_simple.add_argument("--address", default="localhost") 
 
 args = parser.parse_args()
 
@@ -220,6 +233,8 @@ if args.command == "server":
     cmd_run_server(args)
 elif args.command == "post":
     cmd_post(args)
+elif args.command == "simple":
+    cmd_simple(args)
 else: raise ValueError("bad command name", args.command)
     
 #---------------------------------------------------------------------------
