@@ -76,7 +76,8 @@ class FragmentationManager:
         else: raise ValueError("bad state", self.state)
 
     def get_current_fragment(self):
-        print("fragment window={} fcn={} current_frag_index={}".format(self.window, self.fcn, self.fragment_index))
+        print("fragment window={} fcn={} current_frag_index={}".format(
+            self.window, self.fcn, self.fragment_index))
         header = struct.pack(b"!BB", self.window, self.fcn)
         return header + bytes(self.content[self.fragment_index].encode("ascii"))
 
@@ -96,7 +97,8 @@ class FragmentationManager:
 
         # Next fragment
         self.window = (self.window+1) % 2 # protocol
-        self.fcn = self.max_fcn_per_window # - because it will be the first of the new window
+        # - because it will be the first of the new window:
+        self.fcn = self.max_fcn_per_window 
         self.fragment_index += 1 # internal data structure
 
         if self.fragment_index == len(self.content):
@@ -104,7 +106,8 @@ class FragmentationManager:
             return b""
 
         if self.fragment_index == len(self.content)-1:
-            self.fcn = 1 # protocol - because it is the end of the content in this case
+            # protocol - because it is the end of the content in this case:
+            self.fcn = 1 
             return self.get_current_fragment() # XXX + "MIC"
         else:
             return self.get_current_fragment()
@@ -137,7 +140,6 @@ class SystemManager:
     def send_packet(self, packet):
         XXX
 
-
 # {'srcbuf': b'The crow has flown away:\nswaying in the evening sun,\naleafless tree.', 'max_fcn': 255, 'win_size': 255, 'win_mask': 57896044618658097711785492504343953926634992332820282019728792003956564819967, 'fcn': 255, 'end_of_fragment': 255, 'base_hdr': 256}
 
 INTER_FRAGMENT_DELAY = 1.0 # seconds
@@ -157,7 +159,7 @@ class WindowAckModeManager:
         print(self.fragment.__dict__) #XXX
         self.fragment_size = fragment_size
 
-        self.nb_fragment  = (len(full_packet) + fragment_size-1) // fragment_size
+        self.nb_fragment = (len(full_packet) + fragment_size-1) // fragment_size
 
         # 1376     Intially, when a fragmented packet need to be sent, the window is set
         # 1377     to 0, a local_bit map is set to 0, and FCN is set the the highest
@@ -321,8 +323,10 @@ class WindowAckModeManager:
                 # XXX: (optional) stop timer
                 self.window_index += 1
                 self.window = self.window+1 # XXX!!: modulo
-                nb_remaining_fragment = self.nb_fragment - self.window_size * self.window_index
-                print("UPDATE:", nb_remaining_fragment, self.nb_fragment, self.window_size, self.window_index)
+                nb_remaining_fragment = (self.nb_fragment
+                                         - self.window_size * self.window_index)
+                print("UPDATE:", nb_remaining_fragment, self.nb_fragment,
+                      self.window_size, self.window_index)
                 self.fcn = min(nb_remaining_fragment, self.max_fcn) # XXX:factor in
                 unfinished, packet = self.get_next_fragment()
                 self.state = "SEND"                
@@ -503,13 +507,16 @@ def test_window_ack_manager_internal():
 def test_window_ack_manager(args):
     system = RealTimeSystemManager((args.address, args.port),
                                    args.listen_port, args.time_scale)
-    packet = b"The crow has flown away: - swaying in the evening sun, - a leafless tree."
+    packet = ( b"The crow has flown away: "
+              +b"- swaying in the evening sun, "
+              +b"- a leafless tree.")
     window_ack_manager = WindowAckModeManager(
         system, FRAGMENT_FORMAT, #fragment.fp,
         full_packet=packet, rule_id=0, dtag=0, window_size=1, fragment_size=4)
     system.set_receive_packet_callback(window_ack_manager.event_packet)
     if args.inject:
-        inject_receive_list = [None]*12 + [b"\x00\xfe"] + [None]*20 + [b"\x01\xfe"]
+        inject_receive_list = ([None]*12 + [b"\x00\xfe"] + [None]*20
+                               + [b"\x01\xfe"])
         system.set_inject_receive_list(inject_receive_list)
     system.add_event(0, window_ack_manager.start, ())
     system.run()
@@ -658,13 +665,17 @@ parser_test_emul.add_argument("--address", default="localhost")
 parser_test_emul.add_argument("--port", type=int, default=9999, help="destination port")
 parser_test_emul.add_argument("--listen-port", type=int, default=9999)
 
-parser_test_udp_window_ack = subparsers.add_parser("udp-win-ack", help="test window ack manager")
+parser_test_udp_window_ack = subparsers.add_parser(
+    "udp-win-ack", help="test window ack manager")
 parser_test_udp_window_ack.add_argument("--address", default="localhost")
-parser_test_udp_window_ack.add_argument("--port", type=int, default=9999, help="destination port")
+parser_test_udp_window_ack.add_argument(
+    "--port", type=int, default=9999, help="destination port")
 parser_test_udp_window_ack.add_argument("--data", type=int, default=9999)
 parser_test_udp_window_ack.add_argument("--listen-port", type=int, default=9999)
-parser_test_udp_window_ack.add_argument("--inject", default=False, action="store_true")
-parser_test_udp_window_ack.add_argument("--time-scale", default=1, type=float) # not working
+parser_test_udp_window_ack.add_argument(
+    "--inject", default=False, action="store_true")
+parser_test_udp_window_ack.add_argument(
+    "--time-scale", default=1, type=float) # not working
 
 args = parser.parse_args()
 
