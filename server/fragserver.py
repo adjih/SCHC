@@ -147,11 +147,12 @@ class SystemManager:
 
 
 class SimulSystemManager:
-    def __init__(self, send_callback=None):
+    def __init__(self):
         self.scheduler = sched.scheduler(self.get_clock, self.wait_delay)
         self.clock = 0
-        self.send_callback = send_callback
-
+        self.receive_packet_callback = None
+        self.inject_receive_list = []
+        
     # sched.scheduler API
         
     def get_clock(self):
@@ -169,9 +170,21 @@ class SimulSystemManager:
         self.scheduler.enter(rel_time, 0, callback, args)
 
     def send_packet(self, packet):
-        print("SEND:", bytes_to_hex(packet))
-        if self.send_callback != None:
-            self.send_callback()
+        #print("SEND:", bytes_to_hex(packet))
+        print("SEND", packet)
+        if len(self.inject_receive_list) > 0:
+            inject_packet = self.inject_receive_list.pop(0)
+            if self.receive_packet_callback != None:
+                print("injected packet:", inject_packet)
+                self.add_event(0, self.receive_packet_callback,
+                               (inject_packet,))
+
+    def set_receive_packet_callback(self, callback):
+        self.receive_packet_callback = callback
+
+    def set_inject_receive_list(self, packet_list):
+        self.inject_receive_list = packet_list[:]
+        
             
 class RealTimeSystemManager:
     """
@@ -194,7 +207,6 @@ class RealTimeSystemManager:
         self.add_event(1e8, "should not be called", ())
         self.inject_receive_done = False
         self.inject_receive_list = []
-
 
     def set_inject_receive_list(self, packet_list):
         self.inject_receive_list = packet_list[:]
@@ -232,7 +244,8 @@ class RealTimeSystemManager:
         self.scheduler.enter(rel_time, 0, callback, args)
 
     def send_packet(self, packet):
-        print("SEND:", bytes_to_hex(packet))
+        #print("SEND:", bytes_to_hex(packet))
+        print("SEND", packet)
         self.sd.sendto(packet, self.destination)
 
 
@@ -273,15 +286,15 @@ def test_window_ack_manager_internal():
     simul_system_manager.add_event(0, window_ack_manager.start, ())
     simul_system_manager.run()
 
-def test_window_ack_manager(args):
-    system = RealTimeSystemManager((args.address, args.port),
-                                   args.listen_port, args.time_scale)
+def really_test_window_ack_manager(args, system):
     packet = ( b"The crow has flown away: "
               +b"- swaying in the evening sun, "
               +b"- a leafless tree.")
     window_ack_manager = WindowAckModeSender(
         system, FRAGMENT_FORMAT, #fragment.fp,
-        full_packet=packet, rule_id=0, dtag=0, window_size=1, fragment_size=4)
+        full_packet=packet,
+        rule_id=0, dtag=0,
+        window_max_size=4, fragment_size=4)
     system.set_receive_packet_callback(window_ack_manager.event_packet)
     if args.inject:
         inject_receive_list = ([None]*12 + [b"\x00\xfe"] + [None]*20
@@ -290,6 +303,17 @@ def test_window_ack_manager(args):
     system.add_event(0, window_ack_manager.start, ())
     system.run()
 
+    
+def test_window_ack_manager(args):
+    system = RealTimeSystemManager((args.address, args.port),
+                                   args.listen_port, args.time_scale)
+    really_test_window_ack_manager(args, system)
+
+def test_window_ack_manager_simul(args):
+    system = SimulSystemManager()    
+    really_test_window_ack_manager(args, system)
+
+    
 #---------------------------------------------------------------------------
 # POST packet processing
 
@@ -422,16 +446,21 @@ parser_post = subparsers.add_parser("post", help="post a message")
 parser_post.add_argument("--port", default=3112)
 parser_post.add_argument("--address", default="localhost") 
 
-parser_simple = subparsers.add_parser("simple", help="send one step of simple fragmentation")
+parser_simple = subparsers.add_parser(
+    "simple", help="send one step of simple fragmentation")
 parser_simple.add_argument("--port", default=3112)
 parser_simple.add_argument("--step", type=int, default=0)
 parser_simple.add_argument("--address", default="localhost") 
 
-parser_test_window_ack = subparsers.add_parser("test-win-ack", help="test window ack manager")
+parser_test_window_ack = subparsers.add_parser(
+    "simul-win-ack", help="test window ack manager")
+parser_test_window_ack.add_argument(
+    "--inject", default=False, action="store_true")
 
 parser_test_emul = subparsers.add_parser("test-emul")
 parser_test_emul.add_argument("--address", default="localhost")
-parser_test_emul.add_argument("--port", type=int, default=9999, help="destination port")
+parser_test_emul.add_argument("--port", type=int, default=9999,
+                              help="destination port")
 parser_test_emul.add_argument("--listen-port", type=int, default=9999)
 
 parser_test_udp_window_ack = subparsers.add_parser(
@@ -454,8 +483,8 @@ elif args.command == "post":
     cmd_post(args)
 elif args.command == "simple":
     cmd_simple(args)
-elif args.command == "test-win-ack":
-    test_window_ack_manager_internal()
+elif args.command == "simul-win-ack":
+    test_window_ack_manager_simul(args)
 elif args.command == "udp-win-ack":
     test_window_ack_manager(args)    
 elif args.command == "test-emul":
