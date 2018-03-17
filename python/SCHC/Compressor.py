@@ -69,7 +69,7 @@ class Compressor:
                     offset = 7
 
         elif type( FV ) is str:
-            FVbitmap = bytearray( FV )
+            FVbitmap = FV.encode("utf-8")
             for i in range ( 0, len( FVbitmap ) ):
                 for bitPos in range ( 7, -1, -1 ):
                     msk = ( 1 << bitPos )

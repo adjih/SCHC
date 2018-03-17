@@ -28,10 +28,18 @@ import time
 import struct
 from binascii import unhexlify
 
-from network import LoRa
+try:
+    from network import LoRa
+    is_mote = True
+except:
+    import fakenetwork
+    from fakenetwork import LoRa
+    is_mote = False
 
 import CoAP
 
+import sys
+sys.path.append("../..")
 from SCHC.RuleMngt import RuleManager
 from SCHC.Parser import Parser
 from SCHC.Compressor import Compressor
@@ -64,8 +72,12 @@ while not LORA.has_joined():
     print('Not yet joined...')
 
 # create a LoRa socket
-LORA_SOCKET = socket.socket(socket.AF_LORA, socket.SOCK_RAW)# pylint: disable=no-member
+if is_mote:
+    LORA_SOCKET = socket.socket(socket.AF_LORA, socket.SOCK_RAW)# pylint: disable=no-member
                                                            # - Lora socket specific options
+else:
+    LORA_SOCKET = fakenetwork.make_lora_socket()
+
 LORA_SOCKET.bind(0x02)
 
 # set the LoRaWAN data rate

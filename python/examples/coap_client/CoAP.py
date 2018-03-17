@@ -88,7 +88,7 @@ class Message:
     def add_option_path( self, path = '' ):
         "Adds a path element to the message"
         self.__add_option_TL( 11, len( path ) )
-        self.buffer += path
+        self.buffer += path.encode()
 
     def add_option_query( self, query = '' ):
         "Adds a CoAP query to the message"
