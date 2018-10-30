@@ -18,15 +18,22 @@ SCHC compressor, Copyright (c) <2017><IMT Atlantique and Philippe Clavier>
 SIGFOX = False
 LORAWAN = not SIGFOX
 
-if LORAWAN:
-    from network import LoRa
-if SIGFOX:
-    from network import Sigfox
+try:
+    import network
+    if LORAWAN:
+        from network import LoRa
+    if SIGFOX:
+        from network import Sigfox
+        import pycom
+except:
+    import fakepycom as pycom
+    from fakenetwork import LoRa
 
+    
 import socket
 import time
 import binascii
-import pycom
+
 #import _thread
 from binascii import hexlify
 #import struct
